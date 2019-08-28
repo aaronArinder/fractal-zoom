@@ -2,12 +2,14 @@
 
 'use strict';
 
-//const { ffmpeg } = require('./ffmpeg-worker');
+
 const spawn = require('child_process').spawn;
 const { once } = require('events');
 const { Writable, Readable, Transform } = require('stream');
 const ffmpeg = spawn('ffmpeg', ['-y', '-i', 'pipe:', '-r', '30', '-deinterlace', 'a1.mp4'], { stdio: ['pipe'] });
 
+
+const { Big } = require('big.js');
 const { createCanvas, loadImage } = require('canvas');
 
 // add check for whatever version of node lets async gens work
@@ -79,8 +81,9 @@ async function * generateCanvas () {
 
 
 function mandelIter (cx, cy, maxIter) {
-  let x = 0.0;
-  let y = 0.0;
+
+  let x  = 0;
+  let y  = 0;
   let xx = 0;
   let yy = 0;
   let xy = 0;
@@ -88,7 +91,7 @@ function mandelIter (cx, cy, maxIter) {
   let iter = maxIter;
   while (iter-- && xx + yy <= 4) {
     xy = x * y;
-    xx = x * x;
+    xx = x * x; //sqr more performant?
     yy = y * y;
 
     // find the real part of the complex number
@@ -112,16 +115,16 @@ function mandelbrot (canvas, xmin, xmax, ymin, ymax, iterations, zoom) {
     // height for-loop
     for (var iy = 0; iy < height; ++iy) {
       const { transformX, transformY } = updateTransforms.retrieve();
-      let y = (ymin + (((ymax - ymin) * iy) / (height - 1)));
-      let x = (xmin + (((xmax - xmin) * ix) / (width - 1)));
+      let y = Big(ymin + (((ymax - ymin) * iy) / (height - 1)));
+      let x = Big(xmin + (((xmax - xmin) * ix) / (width - 1)));
 
-      x = x / (zoom ** zoom);
-      y = y / (zoom ** zoom);
+      x = x.div(zoom * zoom);
+      y = y.div(zoom * zoom);
 
       // if the distance between y and the previous y is great
       if (transformX && transformY) {
-        x = x + transformX;
-        y = y + transformY;
+        x = x.plus(transformX);
+        y = y.plus(transformY);
       }
 
 
