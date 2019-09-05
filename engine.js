@@ -1,150 +1,152 @@
-// some kind of loading message
-
 'use strict';
 
-
-const { once } = require('events');
-const { Writable, Readable, Transform } = require('stream');
-const { Big } = require('big.js');
+const cluster                     = require('cluster');
+const http                        = require('http');
+const { promisify }               = require('util');
+const { once }                    = require('events');
+const { Big }                     = require('big.js');
 const { createCanvas, loadImage } = require('canvas');
-const cluster = require('cluster');
-const numCPUs = require('os').cpus().length;
 
 if (cluster.isMaster) {
-  const frameQueue = [];
+  console.log(`Master PID: ${process.pid}`);
+  const numCPUs = require('os').cpus().length;
   const spawn = require('child_process').spawn;
   const ffmpeg = spawn('ffmpeg', ['-y', '-i', 'pipe:', '-r', '30', '-deinterlace', 'a1.mp4'], { stdio: ['pipe'] });
 
-  console.log(`Master PID: ${process.pid}`);
-  // minus 1 for ffmpeg spawned child
-  for (let i = 0; i < numCPUs - 1; i++) {
-    cluster.fork({ frameQueue });
+  const queue =[];
+  const hash = {};
+  let frameIdx = 0;
+  // start off 1 because it's always off by 1--why?
+  let frameCount = 0;
+  let frameToWrite = 1;
+  let closing = false;
+
+  for (let i = 0; i < numCPUs; i++) {
+    const worker = cluster.fork();
+
+    // add frameCount here
+    worker.on('message', async (frame) => {
+      try {
+        const testFrame = new Buffer(frame); // somehow ends up an object?
+        //queue.push(testFrame);
+        hash[frameToWrite] = testFrame;
+
+        const randomNumber = Math.floor(Math.abs(Math.random() * 10 - 2)) + 1;
+        const selectedWorker = cluster.workers[randomNumber];
+        if (frameIdx <= 250) selectedWorker.send({ frameIdx: ++frameIdx });
+        else if (frameCount === frameIdx
+          || frameCount + 1 === frameIdx
+          || frameCount + 2 === frameIdx
+          || frameCount + 3 === frameIdx
+        ) {
+          closing = true;
+          await cluster.disconnect();
+        }
+        frameCount++;
+      } catch (e) {
+        console.error(e);
+      }
+    });
   }
 
-  //for (const id in cluster.workers) {
-  //  cluster.workers[id].on('message', async ({ frame, config }) => {
-  //    console.log('frame', frame)
-  //    console.log('config', config)
-  //    const handledCanvas = await mandelbrot(config);
-  //    console.log('handledCanvas', handledCanvas)
-  //    //process.send(handledCanvas);
-  //    //process.send(await mandelbrot(config));
-  //  });
-  //}
-
-  cluster.on('message', async (frame) => {
-    console.log('howdy')
-    if (!ffmpeg.stdin.write(chunk)) {
-      await once(ffmpeg.stdin, 'drain');
+  function * generateFrame () {
+    const currentKeysAndValues = Object.entries(hash);
+    for (const entry of currentKeysAndValues) {
+      delete hash[entry[0]];
+      yield entry;
     }
+  };
 
-    ffmpeg.stdin.end();
-    await once(ffmpeg.stdin, 'finish');
-  });
+  for (const id in cluster.workers) {
+    const worker = cluster.workers[id];
+    worker.send({ frameIdx: ++frameIdx, frameCount: ++frameCount });
+  }
+  const cache = {};
+  iterHandler(cache);
+
+  function iterHandler (cache) {
+    (async function iterFn (cache) {
+      try {
+        for await (const [ frame, chunk ] of generateFrame()) {
+          console.log('frameToWrite', frameToWrite)
+          if (parseInt(frame) === frameToWrite) {
+            if (!ffmpeg.stdin.write(chunk)) {
+              await once(ffmpeg.stdin, 'drain');
+            }
+            if (cache[frameToWrite]) delete cache[frameToWrite];
+            frameToWrite++;
+          } else if (cache[frameToWrite]) {
+            // untested
+            if (!ffmpeg.stdin.write(cache[frameToWrite])) {
+              await once(ffmpeg.stdin, 'drain');
+            }
+            delete cache[frameToWrite];
+            frameToWrite++;
+          } else {
+            // untested
+            cache[frame] = chunk;
+          }
+        }
+
+        if (!closing) setTimeout(iterHandler, 100, cache);
+        else {
+          ffmpeg.stdin.end();
+          await once(ffmpeg.stdin, 'finish');
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    })(cache);
+  }
 
 
-  cluster.on('exit', (worker, code, signal) => {
-    console.log(`Worker ${worker.process.pid} died`);
-  });
 
-  generateCanvas(frameQueue);
+  // check out youtube videos for turning mandelbrot set into javascript
+  //
+  // mandelbrot set function: f_c(z) => z^2 + c, starting with z equal to 0, determines which complex
+  // numbers c are in the set of complex numbers that don't tend to infinity
+  //
+  // f(0) => 0^2 + c;
+  // z = c;
+  // f(c) => c^2 + c;
+  //   c^2 === (a + bi)(a + bi)
+  // so, f(c) = (a + bi)(a + bi) + c. And since (a + bi)(a +bi) is a^2 + abi + abi + (b^2)(i^2),
+  // f(c) = a^2 + 2abi - b^2 + c.
+  //
+  // rewritten: f(c) = a^2 - b^2 + 2abi + c. This is on the complex number plane, and we can figure
+  // out which points are in the mandelbrot set by figuring out whether a^2 - b^2 + 2ab tends toward
+  // infinity when z begins at 0. We've stripped the i off.
+  //
+  // (a^2 - b^2) + (2abi + c)
+  //
+
 } else {
   console.log(`Worker ${process.pid} started`);
-  watchQueue();
-}
+  process.on('message', async ({ frameIdx, frameCount }) => {
+    // promisify this
+    const transforms = await new Promise((resolve, reject) => {
+      // send over frame
+      http.get(`http://localhost:7007?frame=${frameCount}`, (res) => {
+        res.on('data', data => resolve(JSON.parse(data)));
+      });
+    })
+    console.log('transforms', transforms)
 
-// add check for whatever version of node lets async gens work
-
-const updateTransforms = (() => {
-  const transformsObj = {
-    transformX: 0,
-    transformY: 0,
-  };
-
-  return {
-    update: (transformX, transformY) => {
-      transformsObj.transformX = transformX;
-      transformsObj.transformY = transformY;
-    },
-    retrieve: () => transformsObj,
-  };
-})();
-
-function watchQueue () {
-  while (process.env.frameQueue.length) {
-    const { frame, config } = frameQueue.shift();
-    const handledCanvas =  mandelbrot(config);
-    process.send(handledCanvas);
-  }
-};
-
-//async function * generateCanvas () {
-function generateCanvas () {
-  // need next iterations to focus on a mandelbrot point, or else it just goes
-  // through the center
-  for (let i = 1; i <= 300; i++) {
     const canvas = createCanvas(900, 600);
     const xmin = -2;
     const xmax = 1;
     const ymin = -1;
     const ymax = 1;
     const iterations = 250;
-    const zoom = i/10;
-    const worker = Object.values(cluster.workers).find(worker => {
-      return worker.state === 'none';
-    });
-
-    // implement queue?
-    frameQueue.push({ frame: i, config: {
-      canvas,
-      xmin,
-      xmax,
-      ymin,
-      ymax,
-      iterations,
-      zoom,
-    }});
-    //const handledCanvas = mandelbrot(canvas, xmin, xmax, ymin, ymax, 250, i/10);
-    //yield handledCanvas.toBuffer();
-  }
-};
-
-//(async function() {
-//  let frame = 1;
-//  for await (const chunk of generateCanvas()) {
-//    console.log('frame ', frame++)
-//    if (!ffmpeg.stdin.write(chunk)) {
-//      await once(ffmpeg.stdin, 'drain');
-//    }
-//  }
-//  ffmpeg.stdin.end();
-//  await once(ffmpeg.stdin, 'finish');
-//})();
-
-
-// check out youtube videos for turning mandelbrot set into javascript
-//
-// mandelbrot set function: f_c(z) => z^2 + c, starting with z equal to 0, determines which complex
-// numbers c are in the set of complex numbers that don't tend to infinity
-//
-// f(0) => 0^2 + c;
-// z = c;
-// f(c) => c^2 + c;
-//   c^2 === (a + bi)(a + bi)
-// so, f(c) = (a + bi)(a + bi) + c. And since (a + bi)(a +bi) is a^2 + abi + abi + (b^2)(i^2),
-// f(c) = a^2 + 2abi - b^2 + c.
-//
-// rewritten: f(c) = a^2 - b^2 + 2abi + c. This is on the complex number plane, and we can figure
-// out which points are in the mandelbrot set by figuring out whether a^2 - b^2 + 2ab tends toward
-// infinity when z begins at 0. We've stripped the i off.
-//
-// (a^2 - b^2) + (2abi + c)
-//
-
-
+    const zoom = frameIdx/20;
+    const PLACEHOLDER = await mandelbrot(canvas, xmin, xmax, ymin, ymax, 250, zoom, transforms);
+    const bufferedCanvas = PLACEHOLDER.toBuffer();
+    // truthy if ipc channel still open
+    if (process.channel) process.send(bufferedCanvas);
+  });
+}
 
 function mandelIter (cx, cy, maxIter) {
-
   let x  = 0;
   let y  = 0;
   let xx = 0;
@@ -167,39 +169,75 @@ function mandelIter (cx, cy, maxIter) {
   return maxIter - iter;
 }
 
-function mandelbrot (canvas, xmin, xmax, ymin, ymax, iterations, zoom) {
+async function mandelbrot (canvas, xmin, xmax, ymin, ymax, iterations, zoom, { transformX, transformY }) {
   const width = canvas.width;
   const height = canvas.height;
   const ctx = canvas.getContext('2d');
   const img = ctx.getImageData(0, 0, width, height);
   const pix = img.data;
+
   // width for-loop
   for (var ix = 0; ix < width; ++ix) {
     // height for-loop
     for (var iy = 0; iy < height; ++iy) {
-      const { transformX, transformY } = updateTransforms.retrieve();
-      let y = Big(ymin + (((ymax - ymin) * iy) / (height - 1)));
-      let x = Big(xmin + (((xmax - xmin) * ix) / (width - 1)));
+      //const { transformX, transformY } = updateTransforms.retrieve();
+      //let y = Big(ymin + (((ymax - ymin) * iy) / (height - 1)));
+      //let x = Big(xmin + (((xmax - xmin) * ix) / (width - 1)));
+      let y = (ymin + (((ymax - ymin) * iy) / (height - 1)));
+      let x = (xmin + (((xmax - xmin) * ix) / (width - 1)));
 
-      x = x.div(zoom * zoom);
-      y = y.div(zoom * zoom);
+      //x = x.div(zoom * zoom);
+      //y = y.div(zoom * zoom);
+      x = x/(zoom * zoom);
+      y = y/(zoom * zoom);
 
       // if the distance between y and the previous y is great
       if (transformX && transformY) {
-        x = x.plus(transformX);
-        y = y.plus(transformY);
+        //x = x.plus(transformX);
+        //y = y.plus(transformY);
+
+        x = x+(transformX);
+        y = y+(transformY);
       }
-
-
 
       const i = mandelIter(x, y, iterations);
 
-      // need the right x, but how to determine what that is?
-      // could be finding the right y, or the right distance
-      // between ys
-      if (i < iterations && -0.8 < x && x < -0.7 && 0 < y && y < 0.1) {
+      // TODO: something is broken here; not sure what, but the transforms
+      // don't update more than two or three times total
+      if (i < iterations && (-0.8 < x && x < -0.7) && (0 < y && y < 0.1)) {
         // some kind of validation for changing transformX?
-        if (transformX > x && transformY < y) updateTransforms.update(x, y);
+        //if (transformX > x && transformY < y) updateTransforms.update(x, y);
+        if (transformX > x && transformY < y) {
+          const transformsToSend = JSON.stringify({
+            transformX: x,
+            transformY: y,
+          });
+
+          const postOptions = {
+            hostname: 'localhost',
+            port: 7007,
+            path: '/',
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Content-Length': transformsToSend.length
+            }
+          }
+
+          // promisify this
+          const result = await new Promise((resolve, reject) => {
+            // send frame
+            const req = http.request(postOptions, (res) => {
+              res.on('data', chunk => resolve(chunk));
+            });
+
+            req.on('error', (err) => {
+              return reject(err);
+            });
+            req.write(transformsToSend);
+            req.end();
+          }).catch(console.error);
+        }
       }
 
       const ppos = 4 * (width * iy + ix);
