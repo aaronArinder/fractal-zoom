@@ -15,24 +15,28 @@ const transforms = {
   transformY: 0,
 };
 
-const server = http.createServer((req, res) => {
+//TODO: error handling
+const server = http.createServer(async (req, res) => {
   // do something with req here
   //const frameCount = URLSearchParams();
   if (req.method === 'POST') {
-    console.log('in post!')
+    //console.log('in post!')
     req.on('data', (data) => {
-      const newTransforms = JSON.parse(data);
-      transforms.transformX = newTransforms.transformX;
-      transforms.transformY = newTransforms.transformY;
+      const { transformX, transformY } = JSON.parse(data);
+      if (transformX < transforms.transformX && transformY > transforms.transformY) {
+        console.log('here')
+        transforms.transformX = transformX;
+        transforms.transformY = transformY;
+      }
     });
 
     req.on('end', () => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end();
-
     });
   }
-  res.end(JSON.stringify(transforms));
+
+  await res.end(JSON.stringify(transforms));
 });
 
 server.listen(port, (err) => {

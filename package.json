@@ -4,6 +4,8 @@
   "description": "A mandelbrot fractal generator that streams rendered frames to ffmpeg.",
   "main": "engine.js",
   "scripts": {
+    "generate": "node engine.js",
+    "server": "node server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [

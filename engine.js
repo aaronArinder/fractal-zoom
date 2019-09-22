@@ -25,11 +25,12 @@ if (cluster.isMaster) {
     const worker = cluster.fork();
 
     // add frameCount here
-    worker.on('message', async (frame) => {
+    worker.on('message', async ({ idx, frame }) => {
+      console.log('idx', idx)
       try {
         const testFrame = new Buffer(frame); // somehow ends up an object?
         //queue.push(testFrame);
-        hash[frameToWrite] = testFrame;
+        hash[idx] = testFrame;
 
         const randomNumber = Math.floor(Math.abs(Math.random() * 10 - 2)) + 1;
         const selectedWorker = cluster.workers[randomNumber];
@@ -51,10 +52,9 @@ if (cluster.isMaster) {
 
   function * generateFrame () {
     const currentKeysAndValues = Object.entries(hash);
-    for (const entry of currentKeysAndValues) {
-      delete hash[entry[0]];
+    //console.log('currentKeysAndValues', currentKeysAndValues)
+    for (const entry of currentKeysAndValues)
       yield entry;
-    }
   };
 
   for (const id in cluster.workers) {
@@ -68,12 +68,13 @@ if (cluster.isMaster) {
     (async function iterFn (cache) {
       try {
         for await (const [ frame, chunk ] of generateFrame()) {
-          console.log('frameToWrite', frameToWrite)
+          //console.log('frameToWrite', frameToWrite)
           if (parseInt(frame) === frameToWrite) {
             if (!ffmpeg.stdin.write(chunk)) {
               await once(ffmpeg.stdin, 'drain');
             }
             if (cache[frameToWrite]) delete cache[frameToWrite];
+            delete hash[frameToWrite];
             frameToWrite++;
           } else if (cache[frameToWrite]) {
             // untested
@@ -121,28 +122,31 @@ if (cluster.isMaster) {
   //
 
 } else {
-  console.log(`Worker ${process.pid} started`);
   process.on('message', async ({ frameIdx, frameCount }) => {
     // promisify this
-    const transforms = await new Promise((resolve, reject) => {
+    new Promise((resolve, reject) => {
+      // TODO: remove frameCount or use it
       // send over frame
       http.get(`http://localhost:7007?frame=${frameCount}`, (res) => {
         res.on('data', data => resolve(JSON.parse(data)));
       });
     })
-    console.log('transforms', transforms)
+      .then(async (transforms) => {
+      //console.log('transforms', transforms)
 
-    const canvas = createCanvas(900, 600);
-    const xmin = -2;
-    const xmax = 1;
-    const ymin = -1;
-    const ymax = 1;
-    const iterations = 250;
-    const zoom = frameIdx/20;
-    const PLACEHOLDER = await mandelbrot(canvas, xmin, xmax, ymin, ymax, 250, zoom, transforms);
-    const bufferedCanvas = PLACEHOLDER.toBuffer();
-    // truthy if ipc channel still open
-    if (process.channel) process.send(bufferedCanvas);
+      const canvas = createCanvas(900, 600);
+      const xmin = -2;
+      const xmax = 1;
+      const ymin = -1;
+      const ymax = 1;
+      const iterations = 250;
+      const zoom = frameIdx/7;
+      const PLACEHOLDER = await mandelbrot(canvas, xmin, xmax, ymin, ymax, iterations, zoom, transforms);
+      const bufferedCanvas = PLACEHOLDER.toBuffer();
+      // truthy if ipc channel still open
+      if (process.channel) process.send({ idx: frameIdx, frame: bufferedCanvas });
+
+      });
   });
 }
 
@@ -202,8 +206,6 @@ async function mandelbrot (canvas, xmin, xmax, ymin, ymax, iterations, zoom, { t
 
       const i = mandelIter(x, y, iterations);
 
-      // TODO: something is broken here; not sure what, but the transforms
-      // don't update more than two or three times total
       if (i < iterations && (-0.8 < x && x < -0.7) && (0 < y && y < 0.1)) {
         // some kind of validation for changing transformX?
         //if (transformX > x && transformY < y) updateTransforms.update(x, y);
