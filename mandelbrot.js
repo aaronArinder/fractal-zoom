@@ -30,7 +30,8 @@ function mandelIter (cx, cy, maxIter) {
   return maxIter - iter;
 }
 
-async function mandelbrot (canvas, xmin, xmax, ymin, ymax, iterations, zoom, { transformX, transformY }) {
+async function mandelbrot ({ canvas, xmin, xmax, ymin, ymax, iterations, zoom, transforms }) {
+  const { transformX, transformY } = transforms;
   const width = canvas.width;
   const height = canvas.height;
   const ctx = canvas.getContext('2d');
