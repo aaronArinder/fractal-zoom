@@ -1,7 +1,6 @@
 'use strict';
 
-const { Big }                       = require('big.js');
-const http                          = require('http');
+const http = require('http');
 
 module.exports ={
   mandelbrot,
@@ -17,7 +16,7 @@ function mandelIter (cx, cy, maxIter) {
   let iter = maxIter;
   while (iter-- && xx + yy <= 4) {
     xy = x * y;
-    xx = x * x; //sqr more performant?
+    xx = x * x;
     yy = y * y;
 
     // find the real part of the complex number
@@ -42,22 +41,14 @@ async function mandelbrot ({ canvas, xmin, xmax, ymin, ymax, iterations, zoom, t
   for (var ix = 0; ix < width; ++ix) {
     // height for-loop
     for (var iy = 0; iy < height; ++iy) {
-      //const { transformX, transformY } = updateTransforms.retrieve();
-      //let y = Big(ymin + (((ymax - ymin) * iy) / (height - 1)));
-      //let x = Big(xmin + (((xmax - xmin) * ix) / (width - 1)));
       let y = (ymin + (((ymax - ymin) * iy) / (height - 1)));
       let x = (xmin + (((xmax - xmin) * ix) / (width - 1)));
 
-      //x = x.div(zoom * zoom);
-      //y = y.div(zoom * zoom);
       x = x/(zoom * zoom);
       y = y/(zoom * zoom);
 
       // if the distance between y and the previous y is great
       if (transformX && transformY) {
-        //x = x.plus(transformX);
-        //y = y.plus(transformY);
-
         x = x+(transformX);
         y = y+(transformY);
       }
@@ -65,8 +56,6 @@ async function mandelbrot ({ canvas, xmin, xmax, ymin, ymax, iterations, zoom, t
       const i = mandelIter(x, y, iterations);
 
       if (i < iterations && (-0.8 < x && x < -0.7) && (0 < y && y < 0.1)) {
-        // some kind of validation for changing transformX?
-        //if (transformX > x && transformY < y) updateTransforms.update(x, y);
         if (transformX > x && transformY < y) {
           const transformsToSend = JSON.stringify({
             transformX: x,
