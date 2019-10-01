@@ -14,6 +14,8 @@ The server is a redis-like server meant to make sharing memory between the child
 
 A file called `fractal-zoom.mp4` will be generated in the project's home directory.
 
+_NOTE_: I used the version of Node in the nvmrc. It shouldn't matter (unless you're on a wildy old version), but consider using the same version to minimize the risk of funky version-differences.
+
 #### Future improvements
 There are some problems with this fractal zoom that I want to figure out.
 
