@@ -1,8 +1,7 @@
 /*
- * This is a fractal zoom generator. The big idea is to spawn ffmpeg, generate frames at
- * different levels of zoom, and pipe them to ffmpeg. To speed things up, I'm using node's
- * cluster module. See the README for where this project is headed, and see the issues for what's
- * currently needing to be fixed or updated.
+ * This is a fractal zoom generator for the Mandelbrot set. The big idea is to spawn ffmpeg,
+ * generate frames at different levels of zoom, and pipe them to ffmpeg. To speed things up,
+ * I'm using node's cluster module. See the README for where this project is headed.
  * */
 
 'use strict';
@@ -64,12 +63,12 @@ if (cluster.isMaster) {
    *
    * @typedef {Object} deps
    * @property {Function} createCanvas Generates a blank canvas to make into a fractal frame
-   * @property {Function} httpGet Makes an http request to the transform server
+   * @property {Function} httpGET Makes an http request to the transform server
    * @property {Function} mandelbrot The math for generating a fractal frame
    */
   const deps = {
     createCanvas: require('canvas').createCanvas,
-    httpGet: require('./utilities').httpGet,
+    httpGET: require('./utilities').httpGET,
     mandelbrot: require('./mandelbrot').mandelbrot,
   }
 
@@ -98,7 +97,7 @@ function processMessage (deps) {
   const {
     Big,
     createCanvas,
-    httpGet,
+    httpGET,
     mandelbrot,
   } = deps;
 
@@ -130,7 +129,7 @@ function processMessage (deps) {
         ymin: -1,
         ymax: 1,
         iterations: 250,
-        transforms: await httpGet('http://localhost:7007'),
+        transforms: await httpGET('http://localhost:7777'),
         zoom: frameIdx / 7,
       };
 

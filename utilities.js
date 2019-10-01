@@ -3,7 +3,7 @@
 const http = require('http');
 
 module.exports = {
-  httpGet,
+  httpGET,
   pipe,
 }
 
@@ -28,11 +28,19 @@ function pipe (arg) {
 /**
  * A wrapper around an http call to the redis-like server holding the transform data
  *
- * @param {String} url The url to hit; in this case, 'localhost:7007'
+ * @param {String} url The url to hit; in this case, 'localhost:7777'
  * @returns {Promise} An unresolved promised, which eventually resolves to the transform data
  * returned from the server
  */
-function httpGet (url) {
+function httpGET (url) {
+  return new Promise((resolve, reject) => {
+    return http.get(url, (res) => {
+      return res.on('data', data => resolve(JSON.parse(data)));
+    });
+  });
+}
+
+function httpPOST (url) {
   return new Promise((resolve, reject) => {
     return http.get(url, (res) => {
       return res.on('data', data => resolve(JSON.parse(data)));

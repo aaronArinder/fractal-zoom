@@ -1,30 +1,45 @@
 'use strict';
 
 /*
- * big idea is to create a redis-like server to share data/memory between processes
- *   - clarify
+ * The big idea is to have a redis-like server for sharing data between child processes. Each
+ * process has an IPC channel to the master process, but no way of sharing 'memory' with its
+ * siblings or the master process. This server listens for requests for transforms, x- and
+ * y-points of where the center of the zoom should be, and it listens for requests for updating
+ * those transforms.
+ *
+ * It's a simple http server and doesn't need to be something fancy like Express.
  * */
 
 const http = require('http');
 const { URLSearchParams } = require('url');
 
-const port = 7007;
+const port = 7777;
 
+/**
+ * This object records what to zoom in on. The smaller things get, the more important it is
+ * to have the right center to zoom into; else, you end up in the chaotic abyss (all and only
+ * those poinits in the mandelbrot set) or outside of chaos (in that lukewarm realm of
+ * predictability).
+ *
+ * @typedef {Object} transforms
+ * @property {Number} transformX The x-axis part of the center of the zoom
+ * @property {Number} transformY The y-axis part of the center of the zoom
+ */
 const transforms = {
   transformX: 0,
   transformY: 0,
 };
 
-//TODO: error handling
 const server = http.createServer(async (req, res) => {
-  // do something with req here
-  //const frameCount = URLSearchParams();
+  /*
+   * if POSTing, check that the new transforms are better than the old. For transformX to be
+   * better, it must be lesser than the old one; for transformY, it must be greater than the
+   * old one.
+   * */
   if (req.method === 'POST') {
-    //console.log('in post!')
     req.on('data', (data) => {
       const { transformX, transformY } = JSON.parse(data);
       if (transformX < transforms.transformX && transformY > transforms.transformY) {
-        console.log('here')
         transforms.transformX = transformX;
         transforms.transformY = transformY;
       }
@@ -41,5 +56,5 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(port, (err) => {
   console.log('howdy from port', port);
-  if (err) return console.log('woops', err);
+  if (err) return console.error('woops', err);
 });

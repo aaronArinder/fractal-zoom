@@ -1,3 +1,8 @@
+/*
+ * Based on code from Rosetta Code. This is the math and handling for generating one frame of the
+ * fractal zoom.
+ * */
+
 'use strict';
 
 const http = require('http');
@@ -64,7 +69,7 @@ async function mandelbrot ({ canvas, xmin, xmax, ymin, ymax, iterations, zoom, t
 
           const postOptions = {
             hostname: 'localhost',
-            port: 7007,
+            port: 7777,
             path: '/',
             method: 'POST',
             headers: {
