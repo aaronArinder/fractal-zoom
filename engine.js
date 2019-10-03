@@ -48,7 +48,7 @@ if (cluster.isMaster) {
     numCPUs,
     hash: {},
     shutdownAttempts: 0,
-    totalFrames: parseInt(FRAME_COUNT),
+    totalFrames: FRAME_COUNT,
   }
 
   return pipe(config)(forkWorkers)(startWorkers)(consumeHash)();
@@ -138,8 +138,9 @@ function processMessage (deps) {
 
       /* check that the channel is still open before attempting to send to it */
       if (process.channel) await process.send({ idx: frameIdx, frame: bufferedFrame });
+      else process.exit();
       } catch (err) {
-        console.error('err from catch', err);
+        console.error('err from processMessage', err);
       }
   };
 }
@@ -240,6 +241,7 @@ function * generateFrame (config) {
  * the hash via config.hash. The config.frameToWrite prop is essential. It determines which frame
  * we care to take off of the hash next, preserving order
  *
+ * @async
  * @param {Object} config The configuration object documented above
  * @returns {Object} The configuration object documented above
  */
@@ -272,31 +274,40 @@ function consumeHash (config) {
     return shutdown(config);
   } else {
     writeFrame(config);
-    return setImmediate(consumeHash, config);
+    setImmediate(consumeHash, config);
   }
 }
 
 /**
- * Logic for attempting to shut down the child processes and pipes. It gets invoked 3 times, a
+ * Logic for attempting to shut down the child processes and pipes. It gets invoked 5 times, a
  * randomly chosen number that seems to help prevent ffmpeg from shutting down improperly and
  * corrupting the mp4. I've been running into trouble with ffmpeg as a child process. For large
- * fractal zooms (10k+) it won't generate a moov atom. I think that's because it's not shutting
- * down properly. Either way, super, super annoying. This is some jank shit acting like a
- * bandaid until I have more time to figure it out
+ * fractal zooms (10k+ frames) _sometimes_ the mp4 gets truncated (no moov atom).
  *
+ * @async
  * @param {Object} config The configuration object documented above
  */
 async function shutdown (config) {
-  config.shutdownAttempts++;
-  console.log(`shutdown loop ${config.shutdownAttempts} of 3`);
-  /* call process.exit() after three attempts at gracefully shutting down */
-  if (config.shutdownAttempts >= 3) process.exit();
-  else {
+  try {
     await config.ffmpeg.stdin.end();
-    /* disconnect and close all children; run shutdown() again after all are _supposedly_ closed.
-     * In practice, they don't seem to close properly all the time
+
+    /*
+     * This is a real pain in the ass. For some reason, when generating a large number of frames
+     * (starting roughly at 3k), _something_ hangs the master process. I'm not sure what's doing
+     * it, though. I've used both `process._getActiveRequests()` and `process._getActiveHandles()`
+     * to see what requests/handles are being processed. Nothing looks out of the ordinary!
+     * Putting a bandaid in place until I have the time to figure out what's going on.
+     *
+     * Note to future self: ctrl+c just is SIGINT, but `process.kill(process.id, 'SIGINIT')`
+     * won't work. Again, no idea why; some pipe error gets output, but not with enough detail
+     * to figure it out.
      * */
-    await cluster.disconnect(() => setTimeout(shutdown, 5000, config));
+    await cluster.disconnect(() => {
+      if (config.totalFrames >= 2750)
+        console.log('hanging :: use ctrl + c');
+    });
+  } catch (err) {
+    console.error('err from shutdown', err);
   }
 }
 
@@ -313,6 +324,6 @@ function spawnFfmpeg () {
     // check out the ffmpeg man page for what these options do
     ['-y', '-i', 'pipe:', '-r', '30', 'fractal-zoom.mp4'],
     // spawn options: pipes for stdin, stdout, and stderr
-    { stdio: ['pipe'] }
+    { stdio: ['pipe', null, null] }
   );
 }

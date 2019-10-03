@@ -4,6 +4,7 @@ const http = require('http');
 
 module.exports = {
   httpGET,
+  httpPOST,
   pipe,
 }
 
@@ -40,10 +41,28 @@ function httpGET (url) {
   });
 }
 
-function httpPOST (url) {
+function httpPOST (transforms) {
   return new Promise((resolve, reject) => {
-    return http.get(url, (res) => {
-      return res.on('data', data => resolve(JSON.parse(data)));
+    const postOptions = {
+      hostname: 'localhost',
+      port: 7777,
+      path: '/',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': transforms.length
+      }
+    }
+
+    const req = http.request(postOptions, (res) => {
+      res.on('data', chunk => resolve(chunk));
     });
-  });
+
+    req.on('error', (err) => {
+      return reject(err);
+    });
+    req.write(transforms);
+    req.end();
+  })
+    .catch(console.error);
 }

@@ -6,11 +6,21 @@
 'use strict';
 
 const http = require('http');
+const { httpPOST } = require('./utilities');
 
 module.exports ={
   mandelbrot,
 };
 
+/**
+ * The iterator that determines whether some point is within or without the Mandelbrot set.
+ *
+ * @param {Number} cx The original x-axis value
+ * @param {Number} cy The original y-axis value
+ * @param {Number} maxIter Total number of iterations to run before determing a point is within the set
+ * @returns {Number} The difference between the maximum number of iterations allowed and the
+ * total number of iterations that occured while determining whether the point is in the set
+ */
 function mandelIter (cx, cy, maxIter) {
   let x  = 0;
   let y  = 0;
@@ -19,14 +29,18 @@ function mandelIter (cx, cy, maxIter) {
   let xy = 0;
 
   let iter = maxIter;
+  /*
+   * if either the x or y values, squared, are 2 or greater, the point isn't within the set;
+   * so, if both added together are equal to or greater than 4, we know it's not in the set
+   * */
   while (iter-- && xx + yy <= 4) {
     xy = x * y;
     xx = x * x;
     yy = y * y;
 
-    // find the real part of the complex number
+    /* find the real part of the complex number */
     x = xx - yy + cx; // add cx to preserve original x value
-    // find the imaginary part
+    /* find the imaginary part */
     y = xy + xy + cy; // add cy to preserve the original y value
   }
 
@@ -34,6 +48,26 @@ function mandelIter (cx, cy, maxIter) {
   return maxIter - iter;
 }
 
+/**
+ * Generates a frame of the fractal zoom at some level of zoom
+ *
+ * @param {Object} {canvas A canvas object, from node-canvas, that starts blank and has its
+ * pixels colored depending on whether the point they represent is within or without the
+ * Mandelbrot set
+ * @param {Number} xmin The x-axis minimum
+ * @param {Object} xmax The x-axis maximum
+ * @param {Number} ymin The y-axis minimum
+ * @param {Number} ymax The y-axis maximum
+ * @param {Number} iterations The number of iterations to use in the mandelIter() to determine
+ * whether the point is within or without the Mandelbrot set. 250 is a somewhat low number, and
+ * it's arbitrary; it gives us good reason to think that if particular number hasn't started
+ * tending toward positive or negative infinity, it won't, but we don't get certainty
+ * @param {Number} zoom A moidifer for zoom level
+ * @param {Object} transforms} An object of x- and y-axes that the zoom should center on to keep
+ * the frames riding the edge of the fractal; without centering, they'll fall into either the set
+ * or outside of it
+ * @returns {Object} A prepared canvas ready for buffering and piping to ffmpeg
+ */
 async function mandelbrot ({ canvas, xmin, xmax, ymin, ymax, iterations, zoom, transforms }) {
   const { transformX, transformY } = transforms;
   const width = canvas.width;
@@ -60,41 +94,22 @@ async function mandelbrot ({ canvas, xmin, xmax, ymin, ymax, iterations, zoom, t
 
       const i = mandelIter(x, y, iterations);
 
-      if (i < iterations && (-0.8 < x && x < -0.7) && (0 < y && y < 0.1)) {
+      if (i < iterations && (-0.8 < x && x < -0.7) && (0 < y && y < 0.1))
         if (transformX > x && transformY < y) {
-          const transformsToSend = JSON.stringify({
+          await httpPOST(JSON.stringify({
             transformX: x,
             transformY: y,
-          });
+          }));
 
-          const postOptions = {
-            hostname: 'localhost',
-            port: 7777,
-            path: '/',
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Content-Length': transformsToSend.length
-            }
-          }
-
-          // promisify this
-          const result = await new Promise((resolve, reject) => {
-            // send frame
-            const req = http.request(postOptions, (res) => {
-              res.on('data', chunk => resolve(chunk));
-            });
-
-            req.on('error', (err) => {
-              return reject(err);
-            });
-            req.write(transformsToSend);
-            req.end();
-          }).catch(console.error);
         }
-      }
 
       const ppos = 4 * (width * iy + ix);
+
+      /*
+       * Color/shade the pixels based on how long it took to determine whether the point was in
+       * or out of the Mandelbrot set. Black if within the set, otherwise a shade determined by
+       * how many iterations it took to figure out it wasn't in the set.
+       * */
 
       if (i > iterations) {
         pix[ppos] = 0;
