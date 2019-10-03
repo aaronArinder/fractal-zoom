@@ -1,5 +1,3 @@
-'use strict';
-
 /*
  * The big idea is to have a redis-like server for sharing data between child processes. Each
  * process has an IPC channel to the master process, but no way of sharing 'memory' with its
@@ -9,6 +7,8 @@
  *
  * It's a simple http server and doesn't need to be something fancy like Express.
  * */
+
+'use strict';
 
 const http = require('http');
 const { URLSearchParams } = require('url');
